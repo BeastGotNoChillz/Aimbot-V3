@@ -5,6 +5,7 @@
 4. Smaller circle fov</h3>
 <br>
 <h1>Script:</h1>
+
 ```lua
 loadstring(game:HttpGet("https://raw.githubusercontent.com/BeastGotNoChillz/Aimbot-V3/refs/heads/main/src/Aimbot.lua"))()()
 ```
