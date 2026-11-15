@@ -1,10 +1,10 @@
 <h1>☄️ Aimbot V3 Fork</h1>
 
 **This fork allows:**
-1. Teamcheck✅<br>
-2. Wallcheck✅<br>
+1. Teamcheck ✅<br>
+2. Wallcheck ✅<br>
 3. Aimbot toggle (mouse button 2)🖱️<br>
-4. Smaller circle fov⭕
+4. Smaller circle fov ⭕
 <br>
 
 <h2>📜 Script:</h2>
