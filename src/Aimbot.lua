@@ -350,6 +350,12 @@ local GetClosestPlayer = LPH_NO_VIRTUALIZE(function(Aux, MouseLocation)
 end)
 
 local Load = function()
+	for Index, Connection in next, ServiceConnections do
+		pcall(Disconnect, Connection)
+		ServiceConnections[Index] = nil
+	end
+
+	Running = false
 	OriginalSensitivity = __index(UserInputService, "MouseDeltaSensitivity")
 
 	local Settings, Triggerbot, Tracer, FOVCircle, FOVCircleOutline, TracerSettings, FOVSettings = Environment.Settings, Environment.Triggerbot, Environment.Tracer, Environment.FOVCircle, Environment.FOVCircleOutline, Environment.ClosestPlayerTracer, Environment.FOVSettings
@@ -508,28 +514,18 @@ local Load = function()
 			return
 		end
 
-		local TriggerKey, Toggle = Settings.TriggerKey, Settings.Toggle
+		local TriggerKey = Settings.TriggerKey
 
+		-- HOLD mode: aimlock is active only while the trigger key is held down
 		if Input.UserInputType == Enum.UserInputType.Keyboard and Input.KeyCode == TriggerKey or Input.UserInputType == TriggerKey then
-			if Toggle then
-				Running = not Running
-
-				if not Running then
-					CancelLock()
-				end
-			else
-				Running = true
-			end
+			Running = true
 		end
 	end))
 
 	ServiceConnections.InputEndedConnection = Connect(__index(UserInputService, "InputEnded"), LPH_NO_VIRTUALIZE(function(Input)
-		if Typing then
-			return
-		end
-
 		local TriggerKey = Settings.TriggerKey
 
+		-- Always release, even if a textbox got focus while the key was held
 		if Input.UserInputType == Enum.UserInputType.Keyboard and Input.KeyCode == TriggerKey or Input.UserInputType == TriggerKey then
 			Running = false; CancelLock()
 		end
