@@ -524,7 +524,7 @@ local Load = function()
 	end))
 
 	ServiceConnections.InputEndedConnection = Connect(__index(UserInputService, "InputEnded"), LPH_NO_VIRTUALIZE(function(Input)
-		if Typing or Settings.Toggle then
+		if Typing then
 			return
 		end
 
