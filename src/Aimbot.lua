@@ -1027,7 +1027,7 @@ do
 	Create("TextLabel", {
 		BackgroundTransparency = 1,
 		Size = UDim2.fromScale(1, 1),
-		Text = "Aimlock V3 fork by Beast",
+		Text = "Aimbot V3 fork by Beast",
 		Font = Enum.Font.GothamBold,
 		TextSize = 13,
 		TextColor3 = Colors.Text
