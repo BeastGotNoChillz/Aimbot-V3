@@ -1,7 +1,7 @@
 <h1>☄️ Aimbot V3 Fork</h1>
 
 **This fork adds:**
-1. Teamcheck ✅<br>
+1. Teamcheck toggle ✅<br>
 2. Wallcheck ✅<br>
 3. Aimbot toggle (mouse button 2)🖱️<br>
 4. GUI panel (toggled through 'Alt' key) 🎛️
