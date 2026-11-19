@@ -1,17 +1,20 @@
---[[
-
-	Universal Aimbot Module by Exunys © CC0 1.0 Universal (2023)
-	https://github.com/Exunys
-
-	Performance-optimized revision.
-
-]]
-
---// Luraph Macros
-
 if LPH_OBFUSCATED == nil then
 	LPH_NO_VIRTUALIZE = function(...)
 		return ...
+	end
+end
+
+--// Remove any previous copy (re-running the script is safe)
+
+if getgenv then
+	if getgenv().ESPGUI_Cleanup then
+		pcall(getgenv().ESPGUI_Cleanup)
+	end
+
+	if getgenv().ExunysDeveloperAimbot then
+		pcall(function()
+			getgenv().ExunysDeveloperAimbot:Exit()
+		end)
 	end
 end
 
@@ -293,7 +296,7 @@ local GetClosestPlayer = LPH_NO_VIRTUALIZE(function(Aux, MouseLocation)
 	local BestDistance, Best3DDistance, Best = MaxDistance, 10000, nil
 
 	for _, Value in next, GetPlayers(Players) do
-		if Value == LocalPlayer or tablefind(Blacklisted, __index(Value, "Name")) then
+		if Value == LocalPlayer or (next(Blacklisted) and tablefind(Blacklisted, __index(Value, "Name"))) then
 			continue
 		end
 
@@ -406,6 +409,8 @@ local Load = function()
 		end))
 	end
 
+	local LastTracerSearch, TracerTarget = 0, nil
+
 	-- Single combined per-frame loop (was two separate loops that each searched for players)
 	ServiceConnections.RenderSteppedConnection = Connect(__index(RunService, UpdateMode), LPH_NO_VIRTUALIZE(function()
 		local Now = tick()
@@ -481,7 +486,21 @@ local Load = function()
 
 		--// Tracer
 
-		local ClosestPlayer = TracerSettings.Enabled and Settings.Enabled and GetClosestPlayer(true, MouseLocation)
+		local ClosestPlayer
+
+		if TracerSettings.Enabled and Settings.Enabled and not Running and not Environment.Locked then
+			-- Re-pick the tracer's target ~12x per second instead of every frame.
+			-- The line itself (start / end points) still updates every single frame.
+			if Now - LastTracerSearch >= 0.08 then
+				LastTracerSearch = Now
+				TracerTarget = GetClosestPlayer(true, MouseLocation)
+			end
+
+			ClosestPlayer = TracerTarget
+		else
+			TracerTarget = nil
+		end
+
 		local TracerCharacter = ClosestPlayer and __index(ClosestPlayer, "Character")
 		local TracerPart = TracerCharacter and FindFirstChild(TracerCharacter, Settings.LockPart)
 
@@ -602,5 +621,529 @@ end)
 Environment.Load = Load -- ExunysDeveloperAimbot.Load()
 
 setmetatable(Environment, {__call = Load})
+
+--// ESP + GUI
+
+do
+	local ParentTarget = (gethui and gethui()) or GetService("CoreGui")
+	local TrackedConnections = {}
+
+	local Track = function(Connection)
+		TrackedConnections[#TrackedConnections + 1] = Connection
+		return Connection
+	end
+
+	local Create = function(Class, Properties, Parent)
+		local Object = Instance.new(Class)
+
+		for Property, Value in next, Properties do
+			Object[Property] = Value
+		end
+
+		Object.Parent = Parent
+		return Object
+	end
+
+	--// ESP
+
+	local ESPSettings = {
+		Enabled = true,
+		Names = false,
+		ShowTeammates = true, -- true = everyone (incl. teammates); false = enemies only
+		OutlineTransparency = 0,
+		FillTransparency = 1, -- 1 = outline only
+		NoTeamColor = Color3fromRGB(255, 255, 255)
+	}
+
+	local ESPContainer = Create("Folder", {Name = "ESPContainer"}, ParentTarget)
+	local Entries, PlayerConnections, Pending = {}, {}, {}
+
+	local SetProperty = function(Object, Property, Value) -- only write when changed
+		if Object[Property] ~= Value then
+			Object[Property] = Value
+		end
+	end
+
+	local GetTeamColor = function(Player)
+		if Player.Team then
+			return Player.TeamColor.Color
+		end
+
+		return ESPSettings.NoTeamColor
+	end
+
+	local UpdateESP = function(Player)
+		local Entry = Entries[Player]
+
+		if not Entry then
+			return
+		end
+
+		local Character = Player.Character
+		local Hidden = not ESPSettings.ShowTeammates and Player.Team ~= nil and Player.Team == LocalPlayer.Team
+		local Show = ESPSettings.Enabled and not Hidden and Character ~= nil
+		local Head = Character and (FindFirstChild(Character, "Head") or FindFirstChild(Character, "HumanoidRootPart"))
+		local Color = GetTeamColor(Player)
+
+		SetProperty(Entry.Highlight, "Adornee", Character)
+		SetProperty(Entry.Highlight, "OutlineColor", Color)
+		SetProperty(Entry.Highlight, "OutlineTransparency", ESPSettings.OutlineTransparency)
+		SetProperty(Entry.Highlight, "FillTransparency", ESPSettings.FillTransparency)
+		SetProperty(Entry.Highlight, "Enabled", Show)
+
+		SetProperty(Entry.Billboard, "Adornee", Head)
+		SetProperty(Entry.Label, "TextColor3", Color)
+		SetProperty(Entry.Billboard, "Enabled", Show and ESPSettings.Names and Head ~= nil)
+	end
+
+	-- Several events often fire together (respawn + team change); merge them into one update
+	local ScheduleESP = function(Player)
+		if Pending[Player] then
+			return
+		end
+
+		Pending[Player] = true
+
+		task.defer(function()
+			Pending[Player] = nil
+			UpdateESP(Player)
+		end)
+	end
+
+	local RefreshESP = function()
+		for Player in next, Entries do
+			UpdateESP(Player)
+		end
+	end
+
+	local AddESPPlayer = function(Player)
+		if Player == LocalPlayer or Entries[Player] then
+			return
+		end
+
+		local Highlight = Create("Highlight", {
+			Name = Player.Name,
+			DepthMode = Enum.HighlightDepthMode.AlwaysOnTop, -- visible through walls
+			FillColor = Color3.new(0, 0, 0),
+			Enabled = false
+		}, ESPContainer)
+
+		local Billboard = Create("BillboardGui", {
+			Name = Player.Name,
+			AlwaysOnTop = true,
+			Size = UDim2.fromOffset(120, 18),
+			StudsOffset = Vector3.new(0, 2.2, 0),
+			Enabled = false
+		}, ESPContainer)
+
+		local Label = Create("TextLabel", {
+			BackgroundTransparency = 1,
+			Size = UDim2.fromScale(1, 1),
+			Text = Player.Name,
+			Font = Enum.Font.GothamBold,
+			TextSize = 13,
+			TextStrokeTransparency = 0.4,
+			TextColor3 = ESPSettings.NoTeamColor
+		}, Billboard)
+
+		Entries[Player] = {Highlight = Highlight, Billboard = Billboard, Label = Label}
+
+		PlayerConnections[Player] = {
+			Player.CharacterAdded:Connect(function(Character)
+				ScheduleESP(Player)
+
+				task.spawn(function() -- the head may not exist yet when the character spawns
+					if Character:WaitForChild("Head", 5) then
+						ScheduleESP(Player)
+					end
+				end)
+			end),
+			Player:GetPropertyChangedSignal("Team"):Connect(function()
+				ScheduleESP(Player)
+			end),
+			Player:GetPropertyChangedSignal("TeamColor"):Connect(function()
+				ScheduleESP(Player)
+			end)
+		}
+
+		UpdateESP(Player)
+	end
+
+	local RemoveESPPlayer = function(Player)
+		Pending[Player] = nil
+
+		if PlayerConnections[Player] then
+			for _, Connection in next, PlayerConnections[Player] do
+				Connection:Disconnect()
+			end
+
+			PlayerConnections[Player] = nil
+		end
+
+		local Entry = Entries[Player]
+
+		if Entry then
+			Entry.Highlight:Destroy()
+			Entry.Billboard:Destroy()
+			Entries[Player] = nil
+		end
+	end
+
+	for _, Player in next, GetPlayers(Players) do
+		AddESPPlayer(Player)
+	end
+
+	Track(Players.PlayerAdded:Connect(AddESPPlayer))
+	Track(Players.PlayerRemoving:Connect(RemoveESPPlayer))
+	Track(LocalPlayer:GetPropertyChangedSignal("Team"):Connect(RefreshESP))
+
+	--// GUI
+
+	local Colors = {
+		Background = Color3fromRGB(22, 22, 26),
+		Title = Color3fromRGB(30, 30, 36),
+		Button = Color3fromRGB(36, 36, 43),
+		Stroke = Color3fromRGB(52, 52, 60),
+		Text = Color3fromRGB(205, 205, 212),
+		On = Color3fromRGB(90, 200, 130),
+		Off = Color3fromRGB(70, 70, 80),
+		Knob = Color3fromRGB(235, 235, 240)
+	}
+
+	local ScreenGui = Create("ScreenGui", {
+		Name = "ControlPanel",
+		ResetOnSpawn = false,
+		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+		DisplayOrder = 100
+	}, ParentTarget)
+
+	local Frame = Create("Frame", {
+		Size = UDim2.fromOffset(230, 184),
+		Active = true,
+		Position = UDim2.fromOffset(12, 200),
+		BackgroundColor3 = Colors.Background,
+		BorderSizePixel = 0
+	}, ScreenGui)
+
+	Create("UICorner", {CornerRadius = UDim.new(0, 6)}, Frame)
+	Create("UIStroke", {Color = Colors.Stroke, Thickness = 1}, Frame)
+
+	local TitleBar = Create("Frame", {
+		Size = UDim2.new(1, 0, 0, 28),
+		BackgroundColor3 = Colors.Title,
+		BorderSizePixel = 0
+	}, Frame)
+
+	Create("UICorner", {CornerRadius = UDim.new(0, 6)}, TitleBar)
+
+	Create("TextLabel", {
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(8, 0),
+		Size = UDim2.new(1, -8, 1, 0),
+		Text = "Control Panel   [Alt] hide",
+		Font = Enum.Font.GothamBold,
+		TextSize = 12,
+		TextColor3 = Colors.Text,
+		TextXAlignment = Enum.TextXAlignment.Left
+	}, TitleBar)
+
+	local List = Create("Frame", {
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(8, 34),
+		Size = UDim2.new(1, -16, 1, -44)
+	}, Frame)
+
+	Create("UIListLayout", {Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder}, List)
+
+	local AddToggle = function(Text, Initial, Callback)
+		local State = Initial
+
+		local Button = Create("TextButton", {
+			Size = UDim2.new(1, 0, 0.25, -3), -- 4 rows share the height, so rows grow when the panel is resized
+			BackgroundColor3 = Colors.Button,
+			BorderSizePixel = 0,
+			AutoButtonColor = false,
+			Text = ""
+		}, List)
+
+		Create("UICorner", {CornerRadius = UDim.new(0, 4)}, Button)
+
+		local ToggleLabel = Create("TextLabel", {
+			BackgroundTransparency = 1,
+			Position = UDim2.fromOffset(8, 0),
+			Size = UDim2.new(1, -52, 1, 0),
+			Text = Text,
+			Font = Enum.Font.Gotham,
+			TextScaled = true,
+			TextColor3 = Colors.Text,
+			TextXAlignment = Enum.TextXAlignment.Left
+		}, Button)
+
+		Create("UITextSizeConstraint", {MinTextSize = 6, MaxTextSize = 14}, ToggleLabel)
+
+		local Pill = Create("Frame", {
+			AnchorPoint = Vector2new(1, 0.5),
+			Position = UDim2.new(1, -6, 0.5, 0),
+			Size = UDim2.fromOffset(30, 14),
+			BackgroundColor3 = Colors.Off,
+			BorderSizePixel = 0
+		}, Button)
+
+		Create("UICorner", {CornerRadius = UDim.new(1, 0)}, Pill)
+
+		local Knob = Create("Frame", {
+			AnchorPoint = Vector2new(0, 0.5),
+			Position = UDim2.new(0, 2, 0.5, 0),
+			Size = UDim2.fromOffset(10, 10),
+			BackgroundColor3 = Colors.Knob,
+			BorderSizePixel = 0
+		}, Pill)
+
+		Create("UICorner", {CornerRadius = UDim.new(1, 0)}, Knob)
+
+		local Render = function()
+			Pill.BackgroundColor3 = State and Colors.On or Colors.Off
+			Knob.Position = State and UDim2.new(1, -12, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)
+		end
+
+		Render()
+
+		Track(Button.MouseButton1Click:Connect(function()
+			State = not State
+			Render()
+			Callback(State)
+		end))
+	end
+
+	AddToggle("Toggle Aimbot", Environment.Settings.Enabled, function(State)
+		Environment.Settings.Enabled = State
+
+		if not State and CancelLock then
+			CancelLock() -- releases the target and restores mouse sensitivity
+		end
+	end)
+
+	AddToggle("Toggle ESP", ESPSettings.Enabled, function(State)
+		ESPSettings.Enabled = State
+		RefreshESP()
+	end)
+
+	AddToggle("Toggle ESP Names", ESPSettings.Names, function(State)
+		ESPSettings.Names = State
+		RefreshESP()
+	end)
+
+	AddToggle("Toggle Teammate ESP", ESPSettings.ShowTeammates, function(State)
+		ESPSettings.ShowTeammates = State -- ON = everyone, OFF = enemies only
+		RefreshESP()
+	end)
+
+	--// Dragging (title bar) + resizing (grip in the bottom-right corner)
+
+	local Grip = Create("Frame", {
+		AnchorPoint = Vector2new(1, 1),
+		Position = UDim2.new(1, -3, 1, -3),
+		Size = UDim2.fromOffset(12, 12),
+		BackgroundColor3 = Colors.Stroke,
+		BorderSizePixel = 0,
+		Active = true
+	}, Frame)
+
+	Create("UICorner", {CornerRadius = UDim.new(0, 3)}, Grip)
+
+	local MinSize, MaxSize = Vector2new(170, 130), Vector2new(480, 400)
+	local Dragging, Resizing, DragStart, StartPosition, StartSize
+
+	local IsPointer = function(Input)
+		return Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.Touch
+	end
+
+	Track(TitleBar.InputBegan:Connect(function(Input)
+		if IsPointer(Input) then
+			Dragging, DragStart, StartPosition = true, Input.Position, Frame.Position
+		end
+	end))
+
+	Track(Grip.InputBegan:Connect(function(Input)
+		if IsPointer(Input) then
+			Resizing, DragStart, StartSize = true, Input.Position, Frame.AbsoluteSize
+		end
+	end))
+
+	Track(UserInputService.InputChanged:Connect(function(Input)
+		if not (Dragging or Resizing) then
+			return
+		end
+
+		if Input.UserInputType ~= Enum.UserInputType.MouseMovement and Input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
+
+		local Delta = Input.Position - DragStart
+
+		if Dragging then
+			Frame.Position = UDim2.new(StartPosition.X.Scale, StartPosition.X.Offset + Delta.X, StartPosition.Y.Scale, StartPosition.Y.Offset + Delta.Y)
+		else
+			Frame.Size = UDim2.fromOffset(
+				mathclamp(StartSize.X + Delta.X, MinSize.X, MaxSize.X),
+				mathclamp(StartSize.Y + Delta.Y, MinSize.Y, MaxSize.Y)
+			)
+		end
+	end))
+
+	Track(UserInputService.InputEnded:Connect(function(Input)
+		if IsPointer(Input) then
+			Dragging, Resizing = false, false
+		end
+	end))
+
+	--// Alt = show / hide the panel
+
+	Track(UserInputService.InputBegan:Connect(function(Input)
+		if (Input.KeyCode == Enum.KeyCode.LeftAlt or Input.KeyCode == Enum.KeyCode.RightAlt) and not UserInputService:GetFocusedTextBox() then
+			ScreenGui.Enabled = not ScreenGui.Enabled
+		end
+	end))
+
+	--// Startup notification (slides in at the top, then fades away)
+
+	local Notice = Create("ScreenGui", {
+		Name = "StartupNotice",
+		ResetOnSpawn = false,
+		DisplayOrder = 101
+	}, ParentTarget)
+
+	local NoticeFrame = Create("Frame", {
+		AnchorPoint = Vector2new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, -40),
+		Size = UDim2.fromOffset(230, 30),
+		BackgroundColor3 = Colors.Background,
+		BorderSizePixel = 0
+	}, Notice)
+
+	Create("UICorner", {CornerRadius = UDim.new(0, 6)}, NoticeFrame)
+	Create("UIStroke", {Color = Colors.Stroke, Thickness = 1}, NoticeFrame)
+
+	Create("TextLabel", {
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 1),
+		Text = "Aimlock V3 fork by Beast",
+		Font = Enum.Font.GothamBold,
+		TextSize = 13,
+		TextColor3 = Colors.Text
+	}, NoticeFrame)
+
+	task.spawn(pcall, function()
+		local TweenService = GetService("TweenService")
+
+		TweenService:Create(NoticeFrame, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0.5, 0, 0, 10)}):Play()
+		task.wait(3.5)
+
+		local Out = TweenService:Create(NoticeFrame, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Position = UDim2.new(0.5, 0, 0, -40)})
+		Out:Play()
+		Out.Completed:Wait()
+
+		Notice:Destroy()
+	end)
+
+	--// Cleanup (re-running the script removes the old ESP + GUI)
+
+	getgenv().ESPGUI_Cleanup = function()
+		for _, Connection in next, TrackedConnections do
+			pcall(Disconnect, Connection)
+		end
+
+		for Player in next, Entries do
+			RemoveESPPlayer(Player)
+		end
+
+		ESPContainer:Destroy()
+		ScreenGui:Destroy()
+		Notice:Destroy()
+
+		getgenv().ESPGUI_Cleanup = nil
+	end
+end
+
+--// Start the aimbot (this is what wires up the trigger key and the render loop)
+Load()
+
+--// Start notification (bottom-right, slides in, then fades out)
+
+do
+	local TweenService = GetService("TweenService")
+	local ParentTarget = (gethui and gethui()) or GetService("CoreGui")
+
+	task.spawn(function()
+		local Old = ParentTarget:FindFirstChild("AimlockNotification")
+
+		if Old then
+			Old:Destroy()
+		end
+
+		local Gui = Instance.new("ScreenGui")
+		Gui.Name = "AimlockNotification"
+		Gui.ResetOnSpawn = false
+		Gui.DisplayOrder = 101
+		Gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+		local Group = Instance.new("CanvasGroup") -- lets the whole card fade as one piece
+		Group.AnchorPoint = Vector2new(1, 1)
+		Group.Size = UDim2.fromOffset(300, 40)
+		Group.Position = UDim2.new(1, 320, 1, -16) -- starts off-screen (right)
+		Group.BackgroundColor3 = Color3fromRGB(22, 22, 26)
+		Group.BorderSizePixel = 0
+		Group.GroupTransparency = 1
+		Group.Parent = Gui
+
+		local Corner = Instance.new("UICorner")
+		Corner.CornerRadius = UDim.new(0, 6)
+		Corner.Parent = Group
+
+		local Stroke = Instance.new("UIStroke")
+		Stroke.Color = Color3fromRGB(52, 52, 60)
+		Stroke.Thickness = 1
+		Stroke.Parent = Group
+
+		local Accent = Instance.new("Frame")
+		Accent.Size = UDim2.new(0, 3, 1, 0)
+		Accent.BackgroundColor3 = Color3fromRGB(90, 200, 130)
+		Accent.BorderSizePixel = 0
+		Accent.Parent = Group
+
+		local Label = Instance.new("TextLabel")
+		Label.BackgroundTransparency = 1
+		Label.Position = UDim2.fromOffset(14, 0)
+		Label.Size = UDim2.new(1, -20, 1, 0)
+		Label.Text = "Aimlock V3 fork by BeastGotNoChillz"
+		Label.Font = Enum.Font.GothamMedium
+		Label.TextSize = 13
+		Label.TextColor3 = Color3fromRGB(220, 220, 228)
+		Label.TextXAlignment = Enum.TextXAlignment.Left
+		Label.Parent = Group
+
+		Gui.Parent = ParentTarget
+
+		local SlideIn = TweenService:Create(Group, TweenInfo.new(0.55, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+			Position = UDim2.new(1, -16, 1, -16),
+			GroupTransparency = 0
+		})
+
+		SlideIn:Play()
+		SlideIn.Completed:Wait()
+
+		task.wait(3.5)
+
+		local SlideOut = TweenService:Create(Group, TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+			Position = UDim2.new(1, 320, 1, -16),
+			GroupTransparency = 1
+		})
+
+		SlideOut:Play()
+		SlideOut.Completed:Wait()
+
+		Gui:Destroy()
+	end)
+end
 
 return Environment
