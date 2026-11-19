@@ -14,4 +14,4 @@
 loadstring(game:HttpGet("https://raw.githubusercontent.com/BeastGotNoChillz/Aimbot-V3_fork/refs/heads/main/src/Aimbot.lua"))()()
 ```
 
-**This aimbot is universal.**
+**Aimbot and ESP are universal.**
