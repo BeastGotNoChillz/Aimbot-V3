@@ -805,7 +805,8 @@ do
 		Button = Color3fromRGB(36, 36, 43),
 		Stroke = Color3fromRGB(52, 52, 60),
 		Text = Color3fromRGB(205, 205, 212),
-		On = Color3fromRGB(90, 200, 130),
+		AimOn = Color3fromRGB(70, 140, 255), -- aimlock toggles: blue when ON
+		ESPOn = Color3fromRGB(235, 75, 75), -- ESP toggles: red when ON
 		Off = Color3fromRGB(70, 70, 80),
 		Knob = Color3fromRGB(235, 235, 240)
 	}
@@ -818,7 +819,7 @@ do
 	}, ParentTarget)
 
 	local Frame = Create("Frame", {
-		Size = UDim2.fromOffset(230, 184),
+		Size = UDim2.fromOffset(230, 232), -- 5 rows + a gap between the aimlock and ESP groups
 		Active = true,
 		Position = UDim2.fromOffset(12, 200),
 		BackgroundColor3 = Colors.Background,
@@ -855,11 +856,12 @@ do
 
 	Create("UIListLayout", {Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder}, List)
 
-	local AddToggle = function(Text, Initial, Callback)
+	local AddToggle = function(Text, Initial, Callback, OnColor, Order)
 		local State = Initial
 
 		local Button = Create("TextButton", {
-			Size = UDim2.new(1, 0, 0.25, -3), -- 4 rows share the height, so rows grow when the panel is resized
+			Size = UDim2.new(1, 0, 0.2, -6), -- 5 rows share the height (the group gap is accounted for), so rows grow when the panel is resized
+			LayoutOrder = Order,
 			BackgroundColor3 = Colors.Button,
 			BorderSizePixel = 0,
 			AutoButtonColor = false,
@@ -902,7 +904,7 @@ do
 		Create("UICorner", {CornerRadius = UDim.new(1, 0)}, Knob)
 
 		local Render = function()
-			Pill.BackgroundColor3 = State and Colors.On or Colors.Off
+			Pill.BackgroundColor3 = State and OnColor or Colors.Off
 			Knob.Position = State and UDim2.new(1, -12, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)
 		end
 
@@ -921,22 +923,38 @@ do
 		if not State and CancelLock then
 			CancelLock() -- releases the target and restores mouse sensitivity
 		end
-	end)
+	end, Colors.AimOn, 1)
+
+	AddToggle("Aimlock Team Check", Environment.Settings.TeamCheck, function(State)
+		Environment.Settings.TeamCheck = State -- ON = ignore teammates, OFF = lock anyone
+
+		if CancelLock then
+			CancelLock() -- drop the current target so the new rule applies immediately
+		end
+	end, Colors.AimOn, 2)
+
+	-- Small gap between the aimlock group and the ESP group
+	Create("Frame", {
+		Size = UDim2.new(1, 0, 0, 6),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		LayoutOrder = 3
+	}, List)
 
 	AddToggle("Toggle ESP", ESPSettings.Enabled, function(State)
 		ESPSettings.Enabled = State
 		RefreshESP()
-	end)
+	end, Colors.ESPOn, 4)
 
 	AddToggle("Toggle ESP Names", ESPSettings.Names, function(State)
 		ESPSettings.Names = State
 		RefreshESP()
-	end)
+	end, Colors.ESPOn, 5)
 
 	AddToggle("Toggle Teammate ESP", ESPSettings.ShowTeammates, function(State)
 		ESPSettings.ShowTeammates = State -- ON = everyone, OFF = enemies only
 		RefreshESP()
-	end)
+	end, Colors.ESPOn, 6)
 
 	--// Dragging (title bar) + resizing (grip in the bottom-right corner)
 
@@ -951,7 +969,7 @@ do
 
 	Create("UICorner", {CornerRadius = UDim.new(0, 3)}, Grip)
 
-	local MinSize, MaxSize = Vector2new(170, 130), Vector2new(480, 400)
+	local MinSize, MaxSize = Vector2new(170, 165), Vector2new(480, 400)
 	local Dragging, Resizing, DragStart, StartPosition, StartSize
 
 	local IsPointer = function(Input)
