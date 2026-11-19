@@ -1115,7 +1115,7 @@ do
 		Label.BackgroundTransparency = 1
 		Label.Position = UDim2.fromOffset(14, 0)
 		Label.Size = UDim2.new(1, -20, 1, 0)
-		Label.Text = "Aimlock V3 fork by BeastGotNoChillz"
+		Label.Text = "Aimbot V3 fork by BeastGotNoChillz"
 		Label.Font = Enum.Font.GothamMedium
 		Label.TextSize = 13
 		Label.TextColor3 = Color3fromRGB(220, 220, 228)
